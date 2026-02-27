@@ -37,4 +37,4 @@ DNSTT برای کار کردن نیاز دارد سرور خارج **Authoritati
 روی هر دو سرور (IR و FR):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<YOUR_GITHUB>/<YOUR_REPO>/main/dnstt.sh | sudo bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/rahavard01/DNSTT/main/dnstt.sh | sudo bash -s -- install
