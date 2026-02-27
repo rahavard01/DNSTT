@@ -32,16 +32,6 @@ DNSTT برای کار کردن نیاز دارد سرور خارج **Authoritati
 
 ---
 
-## 1-line Install (از GitHub)
-
-روی هر دو سرور (IR و FR):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/rahavard01/DNSTT/main/dnstt.sh | sudo bash -s -- install
-
-
----
-
 Setup روی FR (سرور خارج / EXIT)
 
 روی FR:
@@ -130,3 +120,12 @@ sudo dnstt.sh restart
 
 Uninstall
 sudo dnstt.sh uninstall
+
+---
+
+## 1-line Install (از GitHub)
+
+روی هر دو سرور (IR و FR):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rahavard01/DNSTT/main/dnstt.sh | sudo bash -s -- install
