@@ -1,0 +1,40 @@
+# DNSTT Emergency Tunnel — IR (ENTRY) -> DNS Tunnel -> FR (EXIT) for V2Ray/Xray
+
+این پروژه برای شرایط اضطراری فیلترینگ ساخته شده:
+کاربر فقط با **V2Ray/وی‌تورای** به **IP ایران** وصل می‌شود، اما سرور ایران ترافیک را از طریق **DNSTT (DNS Tunnel)** به سرور خارج منتقل می‌کند.
+
+> DNSTT خودش TUN/SOCKS نمی‌دهد و یک اتصال TCP forward شبیه netcat است؛ برای اینکه مثل پراکسی کار کند، روی سرور خارج یک SOCKS5 واقعی پشت DNSTT قرار می‌دهیم. :contentReference[oaicite:3]{index=3}
+
+---
+
+## معماری
+
+- **User (V2Ray client / V2RayN / v2rayNG / ...)** → فقط به `IR_PUBLIC_IP:PORT` وصل می‌شود
+- **IR / ENTRY**
+  - Xray/V2Ray inbound می‌گیرد
+  - outbound را به `127.0.0.1:1080` (لوکال) می‌فرستد
+  - روی IR یک `dnstt-client` اجرا می‌شود و پورت `127.0.0.1:1080` را فراهم می‌کند
+- **FR / EXIT**
+  - `dnstt-server` روی UDP اجرا می‌شود و با NAT، پورت 53 به آن هدایت می‌شود
+  - پشت آن یک SOCKS5 server (microsocks) روی `127.0.0.1:8000` اجرا می‌شود
+
+---
+
+## پیش‌نیازها
+
+- Ubuntu/Debian روی هر دو سرور
+- دسترسی root/sudo
+- یک دامنه که بتوانید NS آن را تنظیم کنید
+- UDP/53 روی سرور خارج باید قابل دریافت باشد (Authoritative DNS)
+- روی سرور ایران باید بتوانید به یک Resolver (DoH/DoT/UDP) دسترسی داشته باشید
+
+DNSTT برای کار کردن نیاز دارد سرور خارج **Authoritative** یک ساب‌دامنه باشد و Recursive Resolver وسط، Query ها را به آن فوروارد کند. :contentReference[oaicite:4]{index=4}
+
+---
+
+## 1-line Install (از GitHub)
+
+روی هر دو سرور (IR و FR):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<YOUR_GITHUB>/<YOUR_REPO>/main/dnstt.sh | sudo bash -s -- install
