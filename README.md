@@ -38,3 +38,95 @@ DNSTT برای کار کردن نیاز دارد سرور خارج **Authoritati
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rahavard01/DNSTT/main/dnstt.sh | sudo bash -s -- install
+
+
+---
+
+Setup روی FR (سرور خارج / EXIT)
+
+روی FR:
+
+sudo dnstt
+
+گزینه:
+
+2) Setup FR (EXIT server)
+
+اسکریپت:
+
+dnstt را build می‌کند
+
+microsocks را نصب/اجرا می‌کند
+
+کلیدهای server را می‌سازد
+
+dnstt-server را به‌صورت systemd راه‌اندازی می‌کند
+
+NAT برای UDP/53 -> UDP/5300 می‌گذارد
+
+در پایان یک TOKEN می‌دهد
+
+✅ TOKEN را کپی کنید.
+
+Setup روی IR (سرور ایران / ENTRY)
+
+روی IR:
+
+sudo dnstt
+
+گزینه:
+
+3) Setup IR (ENTRY server)
+
+سپس:
+
+TOKEN را Paste می‌کنید
+
+Mode را انتخاب می‌کنید:
+
+doh (پیشنهادی برای شرایط سخت)
+
+dot
+
+udp
+
+Resolver را وارد می‌کنید (مثلاً DoH URL)
+
+local port را تعیین می‌کنید (پیش‌فرض 1080)
+
+بعد از پایان:
+
+روی IR یک پورت لوکال دارید: 127.0.0.1:1080
+
+اتصال به Xray/V2Ray روی IR (برای اینکه کاربر فقط وی‌تورای بزند)
+
+روی سرور ایران، در کانفیگ Xray/V2Ray شما:
+
+Outbound را SOCKS5 بگذارید به:
+
+Address: 127.0.0.1
+
+Port: 1080
+
+از این به بعد:
+کاربر به IP ایران وصل می‌شود، و خروجی ایران از DNSTT رد می‌شود.
+
+Status / Restart / Logs
+
+منو:
+
+sudo dnstt
+
+یا دستورها:
+
+sudo dnstt.sh status
+sudo dnstt.sh restart
+
+لاگ‌ها:
+
+/var/log/dnstt/dnstt-fr.log
+
+/var/log/dnstt/dnstt-ir.log
+
+Uninstall
+sudo dnstt.sh uninstall
