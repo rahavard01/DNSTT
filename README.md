@@ -128,4 +128,4 @@ sudo dnstt.sh uninstall
 روی هر دو سرور (IR و FR):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rahavard01/DNSTT/main/dnstt.sh | sudo bash -s -- install
+sudo curl -fsSL https://raw.githubusercontent.com/rahavard01/DNSTT/main/dnstt.sh -o /usr/local/bin/dnstt.sh && sudo chmod +x /usr/local/bin/dnstt.sh && sudo /usr/local/bin/dnstt.sh install
