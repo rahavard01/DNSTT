@@ -20,20 +20,15 @@ DEFAULT_SOCKS_PORT="8000"    # microsocks on FR
 DEFAULT_LOCAL_PORT="1080"    # local port on IR (V2Ray outbound uses this)
 DEFAULT_MTU="1232"           # per dnstt docs; can be lowered if needed
 
+# Where to fetch this script when installed via curl|bash
+SCRIPT_URL_DEFAULT="https://raw.githubusercontent.com/rahavard01/DNSTT/main/dnstt.sh"
+SCRIPT_URL="${SCRIPT_URL:-$SCRIPT_URL_DEFAULT}"
+
 # ------------------ helpers ------------------
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
     echo "ERROR: Please run as root (sudo)."
     exit 1
-  fi
-}
-
-os_detect() {
-  if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    echo "${ID:-linux}"
-  else
-    echo "linux"
   fi
 }
 
@@ -80,26 +75,55 @@ confirm() {
   [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]]
 }
 
-# ------------------ dnstt build/install ------------------
+# ------------------ deps ------------------
 install_build_deps() {
   log "Installing dependencies..."
   pkg_install curl ca-certificates git iptables iproute2 jq lsof netcat-openbsd
-  # Go build deps
   if ! command -v go >/dev/null 2>&1; then
     pkg_install golang || pkg_install golang-go
   fi
 }
 
+# ------------------ dnstt build/install ------------------
+set_go_env_for_restricted_networks() {
+  # جلوگیری از گیر کردن روی sumdb/proxy گوگل
+  export GO111MODULE=on
+  export GOSUMDB=off
+  export GOPRIVATE="*"
+  export GONOSUMDB="*"
+  export GONOPROXY=""
+
+  # اگر ایران بودی/کند بود، این کمک می‌کنه:
+  # اول goproxy.io، اگر نشد direct
+  export GOPROXY="${GOPROXY:-https://goproxy.io,direct}"
+}
+
 build_dnstt_from_source() {
-  # Official source: https://www.bamsoftware.com/software/dnstt/ :contentReference[oaicite:1]{index=1}
+  # Official source: https://www.bamsoftware.com/software/dnstt/
   log "Building dnstt from source (bamsoftware git)..."
+  set_go_env_for_restricted_networks
+
   cd /tmp
   rm -rf /tmp/dnstt || true
   git clone https://www.bamsoftware.com/git/dnstt.git
+
+  # Build server/client
   cd /tmp/dnstt/dnstt-server
-  go build -o "$BIN_DIR/dnstt-server"
+  if ! go build -o "$BIN_DIR/dnstt-server"; then
+    log "Go build failed with GOPROXY=$GOPROXY. Retrying with GOPROXY=direct ..."
+    export GOPROXY="direct"
+    go clean -modcache || true
+    go build -o "$BIN_DIR/dnstt-server"
+  fi
+
   cd /tmp/dnstt/dnstt-client
-  go build -o "$BIN_DIR/dnstt-client"
+  if ! go build -o "$BIN_DIR/dnstt-client"; then
+    log "Go build failed with GOPROXY=$GOPROXY. Retrying with GOPROXY=direct ..."
+    export GOPROXY="direct"
+    go clean -modcache || true
+    go build -o "$BIN_DIR/dnstt-client"
+  fi
+
   chmod +x "$BIN_DIR/dnstt-server" "$BIN_DIR/dnstt-client"
   log "dnstt-server and dnstt-client installed to $BIN_DIR"
 }
@@ -110,12 +134,10 @@ install_microsocks() {
     return
   fi
   log "Installing microsocks (SOCKS5 server on FR)..."
-  # Try package first
   if command -v apt-get >/dev/null 2>&1; then
     apt-get install -y microsocks || true
   fi
   if ! command -v microsocks >/dev/null 2>&1; then
-    # Build from source (small)
     pkg_install build-essential
     cd /tmp
     rm -rf /tmp/microsocks || true
@@ -133,8 +155,7 @@ install_microsocks() {
 
 # ------------------ DNS port redirect (FR) ------------------
 apply_dns_redirect_rules() {
-  # Redirect UDP/53 -> UDP/5300 (or chosen port) on FR
-  local listen_port="$1"  # e.g. 5300
+  local listen_port="$1"
   log "Applying iptables rules for UDP/53 -> UDP/$listen_port redirect..."
   iptables -I INPUT -p udp --dport "$listen_port" -j ACCEPT 2>/dev/null || true
   iptables -t nat -I PREROUTING -p udp --dport 53 -j REDIRECT --to-ports "$listen_port" 2>/dev/null || true
@@ -143,15 +164,12 @@ apply_dns_redirect_rules() {
 remove_dns_redirect_rules() {
   local listen_port="$1"
   log "Removing iptables rules for DNS redirect..."
-  # Best-effort delete (may fail if not present)
   iptables -D INPUT -p udp --dport "$listen_port" -j ACCEPT 2>/dev/null || true
   iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports "$listen_port" 2>/dev/null || true
 }
 
 # ------------------ systemd ------------------
-systemd_reload() {
-  systemctl daemon-reload
-}
+systemd_reload() { systemctl daemon-reload; }
 
 write_service_fr() {
   local tunnel_domain="$1"
@@ -233,7 +251,6 @@ make_token() {
   local tunnel_domain="$1"
   local pubkey_b64
   pubkey_b64="$(base64 -w0 < "$CFG_DIR/server.pub")"
-  # token fields are JSON for easy parsing
   jq -nc --arg domain "$tunnel_domain" --arg pub "$pubkey_b64" '{tunnel_domain:$domain,server_pub_b64:$pub}' | base64 -w0
 }
 
@@ -242,7 +259,39 @@ read_token() {
   echo "$token" | base64 -d 2>/dev/null
 }
 
-# ------------------ menu actions ------------------
+# ------------------ install self (fix curl|bash) ------------------
+install_menu_alias() {
+  cat > "$BIN_DIR/dnstt" <<'EOF'
+#!/usr/bin/env bash
+exec /usr/local/bin/dnstt-menu "$@"
+EOF
+  chmod +x "$BIN_DIR/dnstt"
+
+  cat > "$BIN_DIR/dnstt-menu" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT="/usr/local/bin/dnstt.sh"
+if [[ ! -f "$SCRIPT" ]]; then
+  echo "ERROR: /usr/local/bin/dnstt.sh not found."
+  exit 1
+fi
+exec bash "$SCRIPT" menu
+EOF
+  chmod +x "$BIN_DIR/dnstt-menu"
+}
+
+action_menu_install_self() {
+  need_root
+  # اگر از طریق curl|bash اجرا شده باشه، $0 قابل کپی نیست (می‌شه "bash")
+  # پس همیشه آخرین نسخه رو از گیت‌هاب می‌کشیم و می‌ذاریم /usr/local/bin/dnstt.sh
+  log "Installing menu wrapper to /usr/local/bin (fetching from GitHub)..."
+  curl -fsSL "$SCRIPT_URL" -o "$BIN_DIR/dnstt.sh"
+  chmod +x "$BIN_DIR/dnstt.sh"
+  install_menu_alias
+  log "Menu installed. Use: sudo dnstt"
+}
+
+# ------------------ actions ------------------
 action_install() {
   need_root
   ensure_dirs
@@ -266,14 +315,11 @@ action_setup_fr() {
 
   log "Generating server keys..."
   "$BIN_DIR/dnstt-server" -gen-key -privkey-file "$CFG_DIR/server.key" -pubkey-file "$CFG_DIR/server.pub" >/dev/null
-
   chmod 600 "$CFG_DIR/server.key" "$CFG_DIR/server.pub"
 
   write_service_fr "$tunnel_domain" "$mtu" "$udp_listen_port" "$socks_port"
   systemd_reload
-
   apply_dns_redirect_rules "$udp_listen_port"
-
   systemctl enable --now "$SVC_SOCKS" "$SVC_FR"
 
   log "FR setup complete."
@@ -283,7 +329,7 @@ action_setup_fr() {
   log "DNS records required (set at your registrar/DNS panel):"
   echo "  A    tns.<your-domain>   -> <FR_PUBLIC_IP>"
   echo "  NS   ${tunnel_domain}    -> tns.<your-domain>"
-  echo "Note: tns label must NOT be under tunnel domain label. See official dnstt DNS setup guidance."
+  echo "Note: tns label must NOT be under tunnel domain label."
 }
 
 action_setup_ir() {
@@ -319,7 +365,6 @@ action_setup_ir() {
   prompt mtu "MTU (lower if unstable)" "$DEFAULT_MTU"
   prompt local_port "Local listen port on IR (use as SOCKS/HTTP proxy entry)" "$DEFAULT_LOCAL_PORT"
 
-  # Save resolver list for convenience
   if [[ -n "$resolver" ]]; then
     grep -qxF "$resolver" "$RESOLVERS_FILE" 2>/dev/null || echo "$resolver" >> "$RESOLVERS_FILE"
   fi
@@ -362,12 +407,10 @@ action_uninstall() {
     exit 0
   fi
 
-  # Stop services
   systemctl disable --now "$SVC_IR" 2>/dev/null || true
   systemctl disable --now "$SVC_FR" 2>/dev/null || true
   systemctl disable --now "$SVC_SOCKS" 2>/dev/null || true
 
-  # Remove iptables rules (best effort)
   remove_dns_redirect_rules "$DEFAULT_UDP_PORT"
 
   rm -f "$SYSTEMD_DIR/$SVC_IR" "$SYSTEMD_DIR/$SVC_FR" "$SYSTEMD_DIR/$SVC_SOCKS"
@@ -375,41 +418,11 @@ action_uninstall() {
 
   rm -rf "$CFG_DIR" "$DATA_DIR" "$LOG_DIR"
   rm -f "$BIN_DIR/dnstt-server" "$BIN_DIR/dnstt-client" "$BIN_DIR/microsocks"
-
   rm -f "$BIN_DIR/dnstt-menu" 2>/dev/null || true
   rm -f "$BIN_DIR/dnstt" 2>/dev/null || true
+  rm -f "$BIN_DIR/dnstt.sh" 2>/dev/null || true
 
   log "Uninstalled."
-}
-
-install_menu_alias() {
-  cat > "$BIN_DIR/dnstt" <<'EOF'
-#!/usr/bin/env bash
-exec /usr/local/bin/dnstt-menu "$@"
-EOF
-  chmod +x "$BIN_DIR/dnstt"
-
-  cat > "$BIN_DIR/dnstt-menu" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-SCRIPT="/usr/local/bin/dnstt.sh"
-
-if [[ ! -f "$SCRIPT" ]]; then
-  echo "ERROR: /usr/local/bin/dnstt.sh not found."
-  exit 1
-fi
-
-exec bash "$SCRIPT" menu
-EOF
-  chmod +x "$BIN_DIR/dnstt-menu"
-}
-
-action_menu_install_self() {
-  need_root
-  # copy current script to /usr/local/bin/dnstt.sh
-  install -m 755 "$0" "$BIN_DIR/dnstt.sh"
-  install_menu_alias
-  log "Menu installed. Use: sudo dnstt"
 }
 
 menu() {
@@ -452,7 +465,7 @@ case "${1:-}" in
   uninstall) action_uninstall ;;
   *)
     echo "Usage:"
-    echo "  sudo bash dnstt.sh install"
+    echo "  curl -fsSL $SCRIPT_URL | sudo bash -s -- install"
     echo "  sudo dnstt           # menu"
     echo "  sudo dnstt.sh menu"
     echo "  sudo dnstt.sh setup-fr | setup-ir | status | restart | uninstall"
